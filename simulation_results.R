@@ -7,7 +7,7 @@ setwd("C:\\Users\\John Boss\\Desktop\\Apples and Oranges Backup\\Jonathan\\Docum
 set.seed(190)
 
 #####################################################################################
-## Regenerate Population
+## Function that generates a simulated population
 #####################################################################################
 
 gen_population_data <- function(){
@@ -24,15 +24,6 @@ gen_population_data <- function(){
   gamma2 <- 1.25
   logpoll <- gamma0 + gamma1*smoking + gamma2*gender + rnorm(N, mean = 0, sd = sd_genx)
   poll <- exp(logpoll)
-  # print("Mean of the pollutant")
-  # mean(poll)
-  # print("Standard Deviation of the pollutant")
-  # sd(poll)
-  # print("Mean of the log-adjusted pollutant")
-  # mean(logpoll)
-  # print("Standard Deviation of the log_adjusted pollutant")
-  # sd(logpoll)
-  # summary(lm(logpoll~smoking+gender))
   
   #Coefficients to generate Y|X,C
   expbeta1 <- 1.5
@@ -48,14 +39,6 @@ gen_population_data <- function(){
   probability <- 1/(1+exp(-y))
   case_cntrl <- rbinom(N, 1, probability)
   sum(case_cntrl)
-  #summary(glm(case_cntrl~logpoll+smoking+gender, family=binomial))
-  
-  # casef <- factor(case_cntrl, levels = c(0,1), labels = c("Control","Case"))
-  # sm.density.compare(logpoll, case_cntrl, xlab = "Log-Adjusted Concentration")
-  # title(main = "Contaminant Distribution by Case/Control Status")
-  # 
-  # colfill <- c(2:(2+length(levels(casef))))
-  # legend("topright", levels(casef), fill=colfill)
   
   #Create Dataset and vector of cases and cntrls to sample from
   data <- as.data.frame(cbind(id=1:N,case_cntrl,logpoll,poll,smoking,gender))
@@ -64,20 +47,26 @@ gen_population_data <- function(){
   
   #Other checks
   model <- glm(case_cntrl~logpoll+smoking+gender, family="binomial")
-  #summary(model)
-  
   model2 <- lm(logpoll~smoking+gender+case_cntrl)
   
   return(list(cases, cntrls, model, model2))
 }
 
+#Generate Study population
+
 pop <- gen_population_data()
+
+#Get true model for the entire population
 
 model <- pop[[3]]
 
-#####################################################################################
+########################################################################################################
 ## Function that returns simulation results
-#####################################################################################
+##
+## Arguments:
+##   wb: Stored simulation results when a batch indicator is included in the analysis model
+##   wob: Stored simulation results when a batch indicator is not included in the analysis model
+########################################################################################################
 
 sim.results.summarize <- function(wb, wob){
   #Organize LOD
@@ -89,6 +78,8 @@ sim.results.summarize <- function(wb, wob){
                     rep("60 60",1000))
   
   #Store Results in vectors
+  
+  #Bias
   gs_bias <- rep(0,9)
   gs_bias_wob <- rep(0,9)
   cca_bias <- rep(0,9)
@@ -100,6 +91,7 @@ sim.results.summarize <- function(wb, wob){
   pmi_bias <- rep(0,9)
   pmi_bias_wob <- rep(0,9)
   
+  #Relative Bias
   gs_rel_bias <- rep(0,9)
   gs_rel_bias_wob <- rep(0,9)
   cca_rel_bias <- rep(0,9)
@@ -111,6 +103,7 @@ sim.results.summarize <- function(wb, wob){
   pmi_rel_bias <- rep(0,9)
   pmi_rel_bias_wob <- rep(0,9)
   
+  #Empirical Standard Deviation
   gs_emp_sd <- rep(0,9)
   gs_emp_sd_wob <- rep(0,9)
   cca_emp_sd <- rep(0,9)
@@ -122,6 +115,7 @@ sim.results.summarize <- function(wb, wob){
   pmi_emp_sd <- rep(0,9)
   pmi_emp_sd_wob <- rep(0,9)
   
+  #Average Standard Error
   gs_avg_se <- rep(0,9)
   gs_avg_se_wob <- rep(0,9)
   cca_avg_se <- rep(0,9)
@@ -133,6 +127,7 @@ sim.results.summarize <- function(wb, wob){
   pmi_avg_se <- rep(0,9)
   pmi_avg_se_wob <- rep(0,9)
   
+  #Mean-Squared Error
   gs_mse <- rep(0,9)
   gs_mse_wob <- rep(0,9)
   cca_mse <- rep(0,9)
@@ -144,6 +139,7 @@ sim.results.summarize <- function(wb, wob){
   pmi_mse <- rep(0,9)
   pmi_mse_wob <- rep(0,9)
   
+  #95% Coverage Probability
   gs_cov <- rep(0,9)
   gs_cov_wob <- rep(0,9)
   cca_cov <- rep(0,9)
@@ -260,12 +256,18 @@ sim.results.summarize <- function(wb, wob){
     pmi_cov_wob[cnt] <- sum(lower_pmi_wob < model$coefficients[2] & upper_pmi_wob > model$coefficients[2])/nrow(sub_wob)
   }
   
+  #Combine results into a data frame
+  
+  #With batch indicator
+  
   summar <- as.data.frame(cbind(lods, gs_bias, cca_bias, sq2_bias, mice_bias, pmi_bias,
                                 gs_rel_bias, cca_rel_bias, sq2_rel_bias, mice_rel_bias, pmi_rel_bias,
                                 gs_emp_sd, cca_emp_sd, sq2_emp_sd, mice_emp_sd, pmi_emp_sd,
                                 gs_avg_se, cca_avg_se, sq2_avg_se, mice_avg_se, pmi_avg_se,
                                 gs_mse, cca_mse, sq2_mse, mice_mse, pmi_mse,
                                 gs_cov, cca_cov, sq2_cov, mice_cov, pmi_cov))
+  
+  #Without batch indicator
   
   summar_wob <- as.data.frame(cbind(lods, gs_bias_wob, cca_bias_wob, sq2_bias_wob, mice_bias_wob, pmi_bias_wob,
                                     gs_rel_bias_wob, cca_rel_bias_wob, sq2_rel_bias_wob, mice_rel_bias_wob, pmi_rel_bias_wob,
@@ -281,7 +283,7 @@ sim.results.summarize <- function(wb, wob){
 }
 
 #####################################################################################
-## Read in Raw Simulation Results
+## Read in Raw Simulation Results and Export Simluation Metrics
 #####################################################################################
 
 #######################################################################################
@@ -305,7 +307,7 @@ write.xlsx(final_res[[1]], "modcohort_randombatch_withind.xlsx")
 write.xlsx(final_res[[2]], "modcohort_randombatch_withoutind.xlsx")
 
 #######################################################################################
-# Large Cohort - Dependent Batch Assignment
+# Large Cohort - Outcome Dependent Batch Assignment
 #######################################################################################
 
 wb <- read.table("largecohort_depbatch_withind.txt", sep=",", stringsAsFactors = FALSE)
@@ -315,7 +317,7 @@ write.xlsx(final_res[[1]], "largecohort_depbatch_withind.xlsx")
 write.xlsx(final_res[[2]], "largecohort_depbatch_withoutind.xlsx")
 
 #######################################################################################
-# Moderate Cohort - Dependent Batch Assignment
+# Moderate Cohort - Outcome Dependent Batch Assignment
 #######################################################################################
 
 wb <- read.table("modcohort_depbatch_withind.txt", sep=",", stringsAsFactors = FALSE)
@@ -323,6 +325,26 @@ wob <- read.table("modcohort_depbatch_withoutind.txt", sep=",", stringsAsFactors
 final_res <- sim.results.summarize(wb = wb, wob = wob)
 write.xlsx(final_res[[1]], "modcohort_depbatch_withind.xlsx")
 write.xlsx(final_res[[2]], "modcohort_depbatch_withoutind.xlsx")
+
+#######################################################################################
+# Large Cohort - Covariate Dependent Batch Assignment
+#######################################################################################
+
+wb <- read.table("largecohort_depbatchcov_withind.txt", sep=",", stringsAsFactors = FALSE)
+wob <- read.table("largecohort_depbatchcov_withoutind.txt", sep=",", stringsAsFactors = FALSE)
+final_res <- sim.results.summarize(wb = wb, wob = wob)
+write.xlsx(final_res[[1]], "largecohort_depbatchcov_withind.xlsx")
+write.xlsx(final_res[[2]], "largecohort_depbatchcov_withoutind.xlsx")
+
+#######################################################################################
+# Moderate Cohort - Covariate Dependent Batch Assignment
+#######################################################################################
+
+wb <- read.table("modcohort_depbatchcov_withind.txt", sep=",", stringsAsFactors = FALSE)
+wob <- read.table("modcohort_depbatchcov_withoutind.txt", sep=",", stringsAsFactors = FALSE)
+final_res <- sim.results.summarize(wb = wb, wob = wob)
+write.xlsx(final_res[[1]], "modcohort_depbatchcov_withind.xlsx")
+write.xlsx(final_res[[2]], "modcohort_depbatchcov_withoutind.xlsx")
 
 #######################################################################################
 # Large Case-Control - Random Batch Assignment

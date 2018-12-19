@@ -2,11 +2,13 @@ library(ggplot2)
 library(mice)
 library(sm)
 
-#Version
-
 setwd("C:\\Users\\John Boss\\Desktop\\Apples and Oranges Backup\\Jonathan\\Documents\\GSRA Presentations\\Single Pollutant Multiple LOD\\Final Results - Updated 6-1-18")
 
 set.seed(190)
+
+############################################################################################################
+## Function that generates a simulated population
+############################################################################################################
 
 gen_population_data <- function(){
   N <- 500000
@@ -22,15 +24,6 @@ gen_population_data <- function(){
   gamma2 <- 1.25
   logpoll <- gamma0 + gamma1*smoking + gamma2*gender + rnorm(N, mean = 0, sd = sd_genx)
   poll <- exp(logpoll)
-  # print("Mean of the pollutant")
-  # mean(poll)
-  # print("Standard Deviation of the pollutant")
-  # sd(poll)
-  # print("Mean of the log-adjusted pollutant")
-  # mean(logpoll)
-  # print("Standard Deviation of the log_adjusted pollutant")
-  # sd(logpoll)
-  # summary(lm(logpoll~smoking+gender))
   
   #Coefficients to generate Y|X,C
   expbeta1 <- 1.5
@@ -45,15 +38,7 @@ gen_population_data <- function(){
   #True Probabilities with noise
   probability <- 1/(1+exp(-y))
   case_cntrl <- rbinom(N, 1, probability)
-  sum(case_cntrl)
-  #summary(glm(case_cntrl~logpoll+smoking+gender, family=binomial))
-  
-  # casef <- factor(case_cntrl, levels = c(0,1), labels = c("Control","Case"))
-  # sm.density.compare(logpoll, case_cntrl, xlab = "Log-Adjusted Concentration")
-  # title(main = "Contaminant Distribution by Case/Control Status")
-  # 
-  # colfill <- c(2:(2+length(levels(casef))))
-  # legend("topright", levels(casef), fill=colfill)
+  #sum(case_cntrl)
   
   #Create Dataset and vector of cases and cntrls to sample from
   data <- as.data.frame(cbind(id=1:N,case_cntrl,logpoll,poll,smoking,gender))
@@ -62,14 +47,29 @@ gen_population_data <- function(){
   
   #Other checks
   model <- glm(case_cntrl~logpoll+smoking+gender, family="binomial")
-  #summary(model)
-  
   model2 <- lm(logpoll~smoking+gender+case_cntrl)
   
   return(list(cases, cntrls, model, model2))
 }
 
-gen_lods <- function(cases, cntrls, design, large){
+############################################################################################################
+## Function that generates detection limits based on % below LOD.
+##
+## Note that case control is an option in this simulation code, however the results in the paper
+## exclusively focus on the cohort study simulations.
+##
+## Arguments:
+##   cases: data frame that includes all cases in the simulated population
+##   cntrls: data frame that includes all non-cases in the simulated population
+##   design: Indicates whether the study design is case-control or cohort and whether there is
+##   differential batch assignment
+##   large: TRUE if sample size is N = 5,000 and FALSE if sample size is N = 1,000
+##   batch_dep_cov: If the design argument indicates that there is dependent batch assignment then TRUE if
+##   batch depends on covariates only and FALSE if batch is outcome dependent.
+############################################################################################################
+
+gen_lods <- function(cases, cntrls, design, large, batch_dep_cov){
+  #Determine sample sizes
   if(large == TRUE & (design == "Case Control - Dependent Batch" | design == "Case Control - Random Batch")){
     ncases <- 1000
     ncntrls <- 4000
@@ -81,6 +81,7 @@ gen_lods <- function(cases, cntrls, design, large){
   } else if(large == FALSE & (design == "Cohort - Dependent Batch" | design == "Cohort - Random Batch")){
     ncohort <- 1000
   }
+  
   #If we have dependent batch assignment need to calculate LOD separately for batch 1 and batch 2
   if(design == "Case Control - Dependent Batch" | design == "Cohort - Dependent Batch"){
     lod_15_b1 <- rep(0,1000)
@@ -95,17 +96,18 @@ gen_lods <- function(cases, cntrls, design, large){
     lod_30 <- rep(0,1000)
     lod_60 <- rep(0,1000)
   }
-  #Create population dataset for the cohort designs
+  #Create total population dataset for the cohort designs
   if(design == "Cohort - Dependent Batch" | design == "Cohort - Random Batch"){
     total_pop <- rbind(cases, cntrls)
   }
+  #Get LODs based on desired % below LOD for 1,000 samples
   for(s in 1:1000){
     print(s)
     if(design == "Case Control - Dependent Batch"){
       cases_samp <- subset(cases, id %in% sample(cases$id, ncases, replace = FALSE))
       cntrls_samp <- subset(cntrls, id %in% sample(cntrls$id, ncntrls, replace = FALSE))
       dataset <- rbind(cases_samp, cntrls_samp)
-      expalpha0 <- exp(-0.3) #Determined by setting P(Y=1) = 0.5 and solving for Beta0
+      expalpha0 <- exp(-0.3) #Determined by setting P(Batch=1) = 0.5 and solving for Beta0
       expalpha1 <- 3
       batch <- log(expalpha0) + log(expalpha1)*dataset$case_cntrl
       #True Probabilities with noise
@@ -118,9 +120,26 @@ gen_lods <- function(cases, cntrls, design, large){
       lod_30_b2[s] <- quantile(subset(dataset, batch1 == 0)$logpoll, probs = 0.3)
       lod_60_b1[s] <- quantile(subset(dataset, batch1 == 1)$logpoll, probs = 0.6)
       lod_60_b2[s] <- quantile(subset(dataset, batch1 == 0)$logpoll, probs = 0.6)
-    } else if(design == "Cohort - Dependent Batch"){
+    } else if(design == "Cohort - Dependent Batch" & batch_dep_cov == FALSE){
       dataset <- subset(total_pop, id %in% sample(total_pop$id, ncohort, replace = FALSE))
-      expalpha0 <- exp(0.73) #Determined by setting P(Y=1) = 0.5 and solving for Beta0
+      expalpha0 <- exp(-0.13) #Determined by setting P(Batch=1) = 0.5 and solving for Beta0
+      expalpha1 <- exp(1.5)
+      batch <- log(expalpha0) + log(expalpha1)*dataset$case_cntrl
+      #True Probabilities with noise
+      prob <- 1/(1+exp(-batch))
+      batch1 <- rbinom(length(batch), 1, prob)
+      #sum(batch1)
+      dataset$batch1 <- batch1
+      #table(dataset$case_cntrl, dataset$batch1)
+      lod_15_b1[s] <- quantile(subset(dataset, batch1 == 1)$logpoll, probs = 0.15)
+      lod_15_b2[s] <- quantile(subset(dataset, batch1 == 0)$logpoll, probs = 0.15)
+      lod_30_b1[s] <- quantile(subset(dataset, batch1 == 1)$logpoll, probs = 0.3)
+      lod_30_b2[s] <- quantile(subset(dataset, batch1 == 0)$logpoll, probs = 0.3)
+      lod_60_b1[s] <- quantile(subset(dataset, batch1 == 1)$logpoll, probs = 0.6)
+      lod_60_b2[s] <- quantile(subset(dataset, batch1 == 0)$logpoll, probs = 0.6)
+    } else if(design == "Cohort - Dependent Batch" & batch_dep_cov == TRUE){
+      dataset <- subset(total_pop, id %in% sample(total_pop$id, ncohort, replace = FALSE))
+      expalpha0 <- exp(0.73) #Determined by setting P(Batch=1) = 0.5 and solving for Beta0
       expalpha1 <- exp(1.5)
       expalpha2 <- exp(-2)
       batch <- log(expalpha0) + log(expalpha1)*dataset$smoking + log(expalpha2)*dataset$gender
@@ -129,6 +148,7 @@ gen_lods <- function(cases, cntrls, design, large){
       batch1 <- rbinom(length(batch), 1, prob)
       #sum(batch1)
       dataset$batch1 <- batch1
+      #table(dataset$case_cntrl, dataset$batch1)
       lod_15_b1[s] <- quantile(subset(dataset, batch1 == 1)$logpoll, probs = 0.15)
       lod_15_b2[s] <- quantile(subset(dataset, batch1 == 0)$logpoll, probs = 0.15)
       lod_30_b1[s] <- quantile(subset(dataset, batch1 == 1)$logpoll, probs = 0.3)
@@ -148,6 +168,7 @@ gen_lods <- function(cases, cntrls, design, large){
       lod_60[s] <- quantile(total_pop$logpoll, probs = 0.6)
     }
   }
+  #Determine final LODs based on the average of the 1,000 samples
   if(design == "Case Control - Dependent Batch" | design == "Cohort - Dependent Batch"){
     b1_15 <- mean(lod_15_b1)
     b2_15 <- mean(lod_15_b2)
@@ -156,7 +177,7 @@ gen_lods <- function(cases, cntrls, design, large){
     b1_60 <- mean(lod_60_b1)
     b2_60 <- mean(lod_60_b2)
     
-    #LODs
+    #Organize LODs into convenient matrix format
     lod_b1 <- c(b1_15, b1_30, b1_60)
     lod_b2 <- c(b2_15, b2_30, b2_60)
     lod_mat <- matrix(rep(0,9), nrow = 9, ncol = 2)
@@ -168,8 +189,9 @@ gen_lods <- function(cases, cntrls, design, large){
       }
     }
   } else if(design == "Case Control - Random Batch" | design == "Cohort - Random Batch"){
-    #LODs
     lod <- c(mean(lod_15), mean(lod_30), mean(lod_60))
+    
+    #Organize LODs into convenient matrix format
     lod_mat <- matrix(rep(0,9), nrow = 9, ncol = 2)
     cnt <- 1
     for(lod1_mat in lod){
@@ -181,6 +203,14 @@ gen_lods <- function(cases, cntrls, design, large){
   }
   return(lod_mat)
 }
+
+############################################################################################################
+## Function that fits a logistic regression model assuming that we did not observe any censoring.
+## This can be thought of as the gold standard, because we observe all concentrations.
+##
+## Arguments:
+##   dataset: data frame of the sample from the simulated population
+############################################################################################################
 
 gold_standard <- function(dataset){
   
@@ -196,6 +226,14 @@ gold_standard <- function(dataset){
   
   return(list(gs_coeff, gs_var, gs_coeff_wob, gs_var_wob))
 }
+
+############################################################################################################
+## Function that fits a logistic regression model after deleting subjects below the LOD
+## in their respective batch. Abbreviated as CCA in the manuscript.
+##
+## Arguments:
+##   dataset: data frame of the sample from the simulated population
+############################################################################################################
 
 complete_case_analysis <- function(dataset){
   
@@ -214,6 +252,16 @@ complete_case_analysis <- function(dataset){
   return(list(cca_coeff, cca_var, cca_coeff_wob, cca_var_wob))
 }
 
+############################################################################################################
+## Function that fits a logistic regression model after substituting concentrations below the LOD
+## in their respective batch with LOD_1/sqrt(2) or LOD_2/sqrt(2). Abbreviated as SQ2 in the manuscript.
+##
+## Arguments:
+##   dataset: data frame of the sample from the simulated population
+##   lod1: LOD for batch 1
+##   lod2: LOD for batch 2
+############################################################################################################
+
 lod_sqrt2_substitution <- function(dataset, lod1, lod2){
   
   dataset$logpoll_cens[dataset$batch1 == 1 & is.na(dataset$logpoll_cens)] <- log(lod1/sqrt(2))
@@ -231,6 +279,14 @@ lod_sqrt2_substitution <- function(dataset, lod1, lod2){
   
   return(list(lod2mod_coeff, lod2mod_var, lod2mod_coeff_wob, lod2mod_var_wob))
 }
+
+############################################################################################################
+## Function that fits logistic regression models after imputing non-detects using multiple imputation
+## using chained equations. Abbreviated as MICE in the manuscript.
+##
+## Arguments:
+##   dataset: data frame of the sample from the simulated population
+############################################################################################################
 
 mice_imputation <- function(dataset){
   
@@ -255,6 +311,20 @@ mice_imputation <- function(dataset){
   
   return(list(qbar, t, vmstar, qbar_wob, t_wob, vmstar_wob))
 }
+
+############################################################################################################
+## Function that fits logistic regression models after imputing non-detects using censored likelihood
+## multiple imputation. Abbreviated as CLMI in the manuscript.
+##
+## When these simulations were written, the original abbreviation of the method was PMI. However,
+## we changed the abbreviation of the method to CLMI in the process of writing the manuscript.
+## Therefore, anytime there is 'pmi' in the code it is referring to CLMI.
+##
+## Arguments:
+##   dataset: data frame of the sample from the simulated population
+##   l: log(LOD) for batch 1
+##   l2: log(LOD) for batch 2
+############################################################################################################
 
 pmi <- function(dataset, l, l2){
   total_imp <- 5
@@ -311,8 +381,7 @@ pmi <- function(dataset, l, l2){
     }
   }
   
-  #Check MLE Estimates
-  #Get MLE for Bootstrapped Sample
+  #Check MLE Estimates for full sample
   dist_x_given_yc <- function(theta){
     -(sum(log(pnorm(l, mean = theta[1]+theta[2]*b1_cens$smoking+theta[3]*b1_cens$gender+theta[4]*b1_cens$case_cntrl, sd = sqrt(theta[5])))) +
         sum(log(pnorm(l2, mean = theta[1]+theta[2]*b2_cens$smoking+theta[3]*b2_cens$gender+theta[4]*b2_cens$case_cntrl, sd = sqrt(theta[5])))) -
@@ -371,7 +440,22 @@ pmi <- function(dataset, l, l2){
               mle_param, prop_sigma))
 }
 
-sim.lod <- function(total_itr, lod_mat, cases, cntrls, design, large){
+############################################################################################################
+## Main simulation function.
+##
+## Arguments:
+##   total_itr: Number of simulation iterations
+##   lod_mat: matrix of lods generate by the gen_lods() function
+##   cases: data frame that includes all cases in the simulated population
+##   cntrls: data frame that includes all non-cases in the simulated population
+##   design: Indicates whether the study design is case-control or cohort and whether there is
+##   differential batch assignment
+##   large: TRUE if sample size is N = 5,000 and FALSE if sample size is N = 1,000
+##   batch_dep_cov: If the design argument indicates that there is dependent batch assignment then TRUE if
+##   batch depends on covariates only and FALSE if batch is outcome dependent.
+############################################################################################################
+
+sim.lod <- function(total_itr, lod_mat, cases, cntrls, design, large, batch_dep_cov){
   #Store results
   with_store <- matrix(rep(0,9*total_itr*90), nrow = 9*total_itr, ncol = 90)
   without_store <- matrix(rep(0,9*total_itr*77), nrow = 9*total_itr, ncol = 77)
@@ -381,6 +465,7 @@ sim.lod <- function(total_itr, lod_mat, cases, cntrls, design, large){
   increm_seed <- 1736
   total_pop <- rbind(cases, cntrls)
   for(lod_combination in 1:nrow(lod_mat)){
+    #Get LODs
     l <- lod_mat[lod_combination,1]
     l2 <- lod_mat[lod_combination,2]
     i <- i + 1
@@ -433,14 +518,24 @@ sim.lod <- function(total_itr, lod_mat, cases, cntrls, design, large){
       
       #Determine Batch Assignment
       if(design == "Case Control - Dependent Batch"){
-        expalpha0 <- exp(-0.3) #Determined by setting P(Y=1) = 0.5 and solving for Beta0
+        expalpha0 <- exp(-0.3) #Determined by setting P(Batch=1) = 0.5 and solving for Beta0
         expalpha1 <- 3
         batch <- log(expalpha0) + log(expalpha1)*dataset$case_cntrl
         prob <- 1/(1+exp(-batch))
         batch1 <- rbinom(length(batch), 1, prob)
         dataset$batch1 <- batch1
-      } else if(design == "Cohort - Dependent Batch"){
-        expalpha0 <- exp(0.73) #Determined by setting P(Y=1) = 0.5 and solving for Beta0
+      } else if(design == "Cohort - Dependent Batch" & batch_dep_cov == FALSE){
+        expalpha0 <- exp(-0.13) #Determined by setting P(Batch=1) = 0.5 and solving for Beta0
+        expalpha1 <- exp(1.5)
+        batch <- log(expalpha0) + log(expalpha1)*dataset$case_cntrl
+        #True Probabilities with noise
+        prob <- 1/(1+exp(-batch))
+        batch1 <- rbinom(length(batch), 1, prob)
+        #sum(batch1)
+        dataset$batch1 <- batch1
+        #table(dataset$case_cntrl, dataset$batch1)
+      } else if(design == "Cohort - Dependent Batch" & batch_dep_cov == TRUE){
+        expalpha0 <- exp(0.73) #Determined by setting P(Batch=1) = 0.5 and solving for Beta0
         expalpha1 <- exp(1.5)
         expalpha2 <- exp(-2)
         batch <- log(expalpha0) + log(expalpha1)*dataset$smoking + log(expalpha2)*dataset$gender
@@ -449,6 +544,7 @@ sim.lod <- function(total_itr, lod_mat, cases, cntrls, design, large){
         batch1 <- rbinom(length(batch), 1, prob)
         #sum(batch1)
         dataset$batch1 <- batch1
+        #table(dataset$case_cntrl, dataset$batch1)
       } else if(design == "Case Control - Random Batch" | design == "Cohort - Random Batch"){
         batch1 <- sample(c(0,1), nrow(dataset), replace = TRUE)
         dataset$batch1 <- batch1
@@ -516,6 +612,14 @@ sim.lod <- function(total_itr, lod_mat, cases, cntrls, design, large){
   return(list(with_store, without_store))
 }
 
+############################################################################################################
+## Function that cleans the output from the sim.lod() function
+##
+## Arguments:
+##   wb: Stored simulation results when a batch indicator is included in the analysis model
+##   wob: Stored simulation results when a batch indicator is not included in the analysis model
+############################################################################################################
+
 export_prep <- function(wb, wob){
   wb_df <- as.data.frame(wb)
   names(wb_df) <- c("LOD1","LOD2","Seed","NumCasesTotal","NumSmkTotal","NumGenTotal","NumBatch1Total","MeanLogPoll",
@@ -545,8 +649,13 @@ export_prep <- function(wb, wob){
 }
 
 #############################
-# Main Part of Program
+# Main Program
 #############################
+
+#######################################################################################
+# Generate Simulated Population
+#######################################################################################
+
 pop <- gen_population_data()
 cases <- pop[[1]]
 cntrls <- pop[[2]]
@@ -560,9 +669,10 @@ set.seed(58681)
 design <- "Cohort - Random Batch"
 large <- TRUE
 total_itr <- 1000
-get_lods <- gen_lods(cases = cases, cntrls = cntrls, design = design, large = large)
+batch_dep_cov <- FALSE
+get_lods <- gen_lods(cases = cases, cntrls = cntrls, design = design, large = large, batch_dep_cov = batch_dep_cov)
 sim_res <- sim.lod(total_itr = total_itr, lod_mat = get_lods, cases = cases, cntrls = cntrls,
-        design = design, large = large)
+        design = design, large = large, batch_dep_cov = batch_dep_cov)
 save_res <- export_prep(sim_res[[1]], sim_res[[2]])
 write.table(save_res[[1]], "largecohort_randombatch_withind.txt", sep=",")
 write.table(save_res[[2]], "largecohort_randombatch_withoutind.txt", sep=",")
@@ -576,15 +686,16 @@ set.seed(24900)
 design <- "Cohort - Random Batch"
 large <- FALSE
 total_itr <- 1000
-get_lods <- gen_lods(cases = cases, cntrls = cntrls, design = design, large = large)
+batch_dep_cov <- FALSE
+get_lods <- gen_lods(cases = cases, cntrls = cntrls, design = design, large = large, batch_dep_cov = batch_dep_cov)
 sim_res <- sim.lod(total_itr = total_itr, lod_mat = get_lods, cases = cases, cntrls = cntrls,
-                   design = design, large = large)
+                   design = design, large = large, batch_dep_cov = batch_dep_cov)
 save_res <- export_prep(sim_res[[1]], sim_res[[2]])
 write.table(save_res[[1]], "modcohort_randombatch_withind.txt", sep=",")
 write.table(save_res[[2]], "modcohort_randombatch_withoutind.txt", sep=",")
 
 #######################################################################################
-# Large Cohort - Dependent Batch Assignment
+# Large Cohort - Outcome Dependent Batch Assignment
 #######################################################################################
 
 set.seed(33195)
@@ -592,15 +703,16 @@ set.seed(33195)
 design <- "Cohort - Dependent Batch"
 large <- TRUE
 total_itr <- 1000
-get_lods <- gen_lods(cases = cases, cntrls = cntrls, design = design, large = large)
+batch_dep_cov <- FALSE
+get_lods <- gen_lods(cases = cases, cntrls = cntrls, design = design, large = large, batch_dep_cov = batch_dep_cov)
 sim_res <- sim.lod(total_itr = total_itr, lod_mat = get_lods, cases = cases, cntrls = cntrls,
-                   design = design, large = large)
+                   design = design, large = large, batch_dep_cov = batch_dep_cov)
 save_res <- export_prep(sim_res[[1]], sim_res[[2]])
 write.table(save_res[[1]], "largecohort_depbatch_withind.txt", sep=",")
 write.table(save_res[[2]], "largecohort_depbatch_withoutind.txt", sep=",")
 
 #######################################################################################
-# Moderate Cohort - Dependent Batch Assignment
+# Moderate Cohort - Outcome Dependent Batch Assignment
 #######################################################################################
 
 set.seed(10183)
@@ -608,12 +720,47 @@ set.seed(10183)
 design <- "Cohort - Dependent Batch"
 large <- FALSE
 total_itr <- 1000
-get_lods <- gen_lods(cases = cases, cntrls = cntrls, design = design, large = large)
+batch_dep_cov <- FALSE
+get_lods <- gen_lods(cases = cases, cntrls = cntrls, design = design, large = large, batch_dep_cov = batch_dep_cov)
 sim_res <- sim.lod(total_itr = total_itr, lod_mat = get_lods, cases = cases, cntrls = cntrls,
-                   design = design, large = large)
+                   design = design, large = large, batch_dep_cov = batch_dep_cov)
 save_res <- export_prep(sim_res[[1]], sim_res[[2]])
 write.table(save_res[[1]], "modcohort_depbatch_withind.txt", sep=",")
 write.table(save_res[[2]], "modcohort_depbatch_withoutind.txt", sep=",")
+
+#######################################################################################
+# Large Cohort - Covariate Dependent Batch Assignment
+#######################################################################################
+
+set.seed(33195)
+
+design <- "Cohort - Dependent Batch"
+large <- TRUE
+total_itr <- 1000
+batch_dep_cov <- TRUE
+get_lods <- gen_lods(cases = cases, cntrls = cntrls, design = design, large = large, batch_dep_cov = batch_dep_cov)
+sim_res <- sim.lod(total_itr = total_itr, lod_mat = get_lods, cases = cases, cntrls = cntrls,
+                   design = design, large = large, batch_dep_cov = batch_dep_cov)
+save_res <- export_prep(sim_res[[1]], sim_res[[2]])
+write.table(save_res[[1]], "largecohort_depbatchcov_withind.txt", sep=",")
+write.table(save_res[[2]], "largecohort_depbatchcov_withoutind.txt", sep=",")
+
+#######################################################################################
+# Moderate Cohort - Covariate Dependent Batch Assignment
+#######################################################################################
+
+set.seed(10183)
+
+design <- "Cohort - Dependent Batch"
+large <- FALSE
+total_itr <- 1000
+batch_dep_cov <- TRUE
+get_lods <- gen_lods(cases = cases, cntrls = cntrls, design = design, large = large, batch_dep_cov = batch_dep_cov)
+sim_res <- sim.lod(total_itr = total_itr, lod_mat = get_lods, cases = cases, cntrls = cntrls,
+                   design = design, large = large, batch_dep_cov = batch_dep_cov)
+save_res <- export_prep(sim_res[[1]], sim_res[[2]])
+write.table(save_res[[1]], "modcohort_depbatchcov_withind.txt", sep=",")
+write.table(save_res[[2]], "modcohort_depbatchcov_withoutind.txt", sep=",")
 
 #######################################################################################
 # Large Case-Control - Random Batch Assignment
@@ -624,9 +771,10 @@ set.seed(21217)
 design <- "Case Control - Random Batch"
 large <- TRUE
 total_itr <- 1000
-get_lods <- gen_lods(cases = cases, cntrls = cntrls, design = design, large = large)
+batch_dep_cov <- FALSE
+get_lods <- gen_lods(cases = cases, cntrls = cntrls, design = design, large = large, batch_dep_cov = batch_dep_cov)
 sim_res <- sim.lod(total_itr = total_itr, lod_mat = get_lods, cases = cases, cntrls = cntrls,
-                   design = design, large = large)
+                   design = design, large = large, batch_dep_cov = batch_dep_cov)
 save_res <- export_prep(sim_res[[1]], sim_res[[2]])
 write.table(save_res[[1]], "largecc_randombatch_withind.txt", sep=",")
 write.table(save_res[[2]], "largecc_randombatch_withoutind.txt", sep=",")
@@ -640,15 +788,16 @@ set.seed(88771)
 design <- "Case Control - Random Batch"
 large <- FALSE
 total_itr <- 1000
-get_lods <- gen_lods(cases = cases, cntrls = cntrls, design = design, large = large)
+batch_dep_cov <- FALSE
+get_lods <- gen_lods(cases = cases, cntrls = cntrls, design = design, large = large, batch_dep_cov = batch_dep_cov)
 sim_res <- sim.lod(total_itr = total_itr, lod_mat = get_lods, cases = cases, cntrls = cntrls,
-                   design = design, large = large)
+                   design = design, large = large, batch_dep_cov = batch_dep_cov)
 save_res <- export_prep(sim_res[[1]], sim_res[[2]])
 write.table(save_res[[1]], "modcc_randombatch_withind.txt", sep=",")
 write.table(save_res[[2]], "modcc_randombatch_withoutind.txt", sep=",")
 
 #######################################################################################
-# Large Case-Control - Dependent Batch Assignment
+# Large Case-Control - Outcome Dependent Batch Assignment
 #######################################################################################
 
 set.seed(52298)
@@ -656,15 +805,16 @@ set.seed(52298)
 design <- "Case Control - Dependent Batch"
 large <- TRUE
 total_itr <- 1000
-get_lods <- gen_lods(cases = cases, cntrls = cntrls, design = design, large = large)
+batch_dep_cov <- FALSE
+get_lods <- gen_lods(cases = cases, cntrls = cntrls, design = design, large = large, batch_dep_cov = batch_dep_cov)
 sim_res <- sim.lod(total_itr = total_itr, lod_mat = get_lods, cases = cases, cntrls = cntrls,
-                   design = design, large = large)
+                   design = design, large = large, batch_dep_cov = batch_dep_cov)
 save_res <- export_prep(sim_res[[1]], sim_res[[2]])
 write.table(save_res[[1]], "largecc_depbatch_withind.txt", sep=",")
 write.table(save_res[[2]], "largecc_depbatch_withoutind.txt", sep=",")
 
 #######################################################################################
-# Moderate Case-Control - Dependent Batch Assignment
+# Moderate Case-Control - Outcome Dependent Batch Assignment
 #######################################################################################
 
 set.seed(78306)
@@ -672,9 +822,10 @@ set.seed(78306)
 design <- "Case Control - Dependent Batch"
 large <- FALSE
 total_itr <- 1000
-get_lods <- gen_lods(cases = cases, cntrls = cntrls, design = design, large = large)
+batch_dep_cov <- FALSE
+get_lods <- gen_lods(cases = cases, cntrls = cntrls, design = design, large = large, batch_dep_cov = batch_dep_cov)
 sim_res <- sim.lod(total_itr = total_itr, lod_mat = get_lods, cases = cases, cntrls = cntrls,
-                   design = design, large = large)
+                   design = design, large = large, batch_dep_cov = batch_dep_cov)
 save_res <- export_prep(sim_res[[1]], sim_res[[2]])
 write.table(save_res[[1]], "modcc_depbatch_withind.txt", sep=",")
 write.table(save_res[[2]], "modcc_depbatch_withoutind.txt", sep=",")

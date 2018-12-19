@@ -2,11 +2,13 @@ library(ggplot2)
 library(mice)
 library(sm)
 
-#Version
-
 setwd("C:\\Users\\John Boss\\Desktop\\Apples and Oranges Backup\\Jonathan\\Documents\\GSRA Presentations\\Single Pollutant Multiple LOD\\Final Results - Updated 6-1-18")
 
 set.seed(190)
+
+#####################################################################################
+## Function that generates a simulated population
+#####################################################################################
 
 gen_population_data <- function(){
   N <- 500000
@@ -22,15 +24,6 @@ gen_population_data <- function(){
   gamma2 <- 1.25
   logpoll <- gamma0 + gamma1*smoking + gamma2*gender + rnorm(N, mean = 0, sd = sd_genx)
   poll <- exp(logpoll)
-  # print("Mean of the pollutant")
-  # mean(poll)
-  # print("Standard Deviation of the pollutant")
-  # sd(poll)
-  # print("Mean of the log-adjusted pollutant")
-  # mean(logpoll)
-  # print("Standard Deviation of the log_adjusted pollutant")
-  # sd(logpoll)
-  # summary(lm(logpoll~smoking+gender))
   
   #Coefficients to generate Y|X,C
   expbeta1 <- 1.5
@@ -46,14 +39,6 @@ gen_population_data <- function(){
   probability <- 1/(1+exp(-y))
   case_cntrl <- rbinom(N, 1, probability)
   sum(case_cntrl)
-  #summary(glm(case_cntrl~logpoll+smoking+gender, family=binomial))
-  
-  # casef <- factor(case_cntrl, levels = c(0,1), labels = c("Control","Case"))
-  # sm.density.compare(logpoll, case_cntrl, xlab = "Log-Adjusted Concentration")
-  # title(main = "Contaminant Distribution by Case/Control Status")
-  # 
-  # colfill <- c(2:(2+length(levels(casef))))
-  # legend("topright", levels(casef), fill=colfill)
   
   #Create Dataset and vector of cases and cntrls to sample from
   data <- as.data.frame(cbind(id=1:N,case_cntrl,logpoll,poll,smoking,gender))
@@ -62,17 +47,25 @@ gen_population_data <- function(){
   
   #Other checks
   model <- glm(case_cntrl~logpoll+smoking+gender, family="binomial")
-  #summary(model)
-  
   model2 <- lm(logpoll~smoking+gender+case_cntrl)
   
   return(list(cases, cntrls, model, model2))
 }
 
+#Generate Study population and true model for the entire population
+
 pop <- gen_population_data()
 cases <- pop[[1]]
 cntrls <- pop[[2]]
 truth <- pop[[4]]
+
+###################################################################################################
+## Function that checks whether the MLE estimated by CLMI coincides with the population parameters.
+##
+## Arguments:
+##   wb: Stored simulation results when a batch indicator is included in the analysis model
+##   wob: Stored simulation results when a batch indicator is not included in the analysis model
+###################################################################################################
 
 check_mle <- function(wb, wob){
   gamma0_bias <- rep(0,9)
@@ -205,7 +198,7 @@ check_mle <- function(wb, wob){
 }
 
 #####################################################################################
-## Read in Raw Simulation Results
+## Read in Raw Simulation Results and check MLE determined from CLMI
 #####################################################################################
 
 #######################################################################################
@@ -225,7 +218,7 @@ wob <- read.table("modcohort_randombatch_withoutind.txt", sep=",", stringsAsFact
 final_res <- check_mle(wb = wb, wob = wob)
 
 #######################################################################################
-# Large Cohort - Dependent Batch Assignment
+# Large Cohort - Outcome Dependent Batch Assignment
 #######################################################################################
 
 wb <- read.table("largecohort_depbatch_withind.txt", sep=",", stringsAsFactors = FALSE)
@@ -233,11 +226,27 @@ wob <- read.table("largecohort_depbatch_withoutind.txt", sep=",", stringsAsFacto
 final_res <- check_mle(wb = wb, wob = wob)
 
 #######################################################################################
-# Moderate Cohort - Dependent Batch Assignment
+# Moderate Cohort - Outcome Dependent Batch Assignment
 #######################################################################################
 
 wb <- read.table("modcohort_depbatch_withind.txt", sep=",", stringsAsFactors = FALSE)
 wob <- read.table("modcohort_depbatch_withoutind.txt", sep=",", stringsAsFactors = FALSE)
+final_res <- check_mle(wb = wb, wob = wob)
+
+#######################################################################################
+# Large Cohort - Covariate Dependent Batch Assignment
+#######################################################################################
+
+wb <- read.table("largecohort_depbatchcov_withind.txt", sep=",", stringsAsFactors = FALSE)
+wob <- read.table("largecohort_depbatchcov_withoutind.txt", sep=",", stringsAsFactors = FALSE)
+final_res <- check_mle(wb = wb, wob = wob)
+
+#######################################################################################
+# Moderate Cohort - Covariate Dependent Batch Assignment
+#######################################################################################
+
+wb <- read.table("modcohort_depbatchcov_withind.txt", sep=",", stringsAsFactors = FALSE)
+wob <- read.table("modcohort_depbatchcov_withoutind.txt", sep=",", stringsAsFactors = FALSE)
 final_res <- check_mle(wb = wb, wob = wob)
 
 #######################################################################################
