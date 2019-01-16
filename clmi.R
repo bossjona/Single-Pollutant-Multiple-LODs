@@ -1,6 +1,4 @@
-setwd("C:\\Users\\John Boss\\Desktop\\Apples and Oranges Backup\\Jonathan\\Documents\\GSRA Presentations\\Single Pollutant Multiple LOD\\Final Results - Updated 6-1-18\\CLMI Function Testing\\Test 1")
-
-clmi <- function(data, cont_name, batch_name, outcome_name, imp_vars, lod_info, total_imp = 5, seed_num, transform_imp){
+clmi <- function(data, cont_name, batch_name, outcome_name, imp_vars, lod_info, total_imp = 5, seed_num, transform_imp = function(x){x}){
   #data: Data frame with contaminant concentration, batch number, covariates used in imputation, precision variables
   #(make sure categorical variables are numeric, not factors). Can use model.matrix function to convert data frame with
   #factors to numeric design matrix and convert that matrix back into a data frame.
@@ -14,6 +12,7 @@ clmi <- function(data, cont_name, batch_name, outcome_name, imp_vars, lod_info, 
   #total_imp: number of multiply imputed datasets (integer).
   #seed_num: seed number to ensure reproducability.
   #transform_imp: transformation applied to contaminant data to make it normally distributed, default is no transformation.
+  #Resulting model will be fit on the transformed contaminant.
   
   set.seed(seed_num)
   
@@ -26,10 +25,7 @@ clmi <- function(data, cont_name, batch_name, outcome_name, imp_vars, lod_info, 
     data$lod[i] <- lod_info[which(lod_info$batch_info == data[[batch_name]][i]),"lod"]
   }
   
-  #save_original_data <- data
-  
-  cont_imp_name <- paste0(cont_name,"_imputed")
-  #data[[cont_imp_name]] <- transform_imp(data[[cont_name]])
+  cont_imp_name <- paste0(cont_name,"_transform","_imputed")
   data[[cont_imp_name]] <- data[[cont_name]]
   
   above_lod <- data[which(!is.na(data[[cont_imp_name]])),]
@@ -134,66 +130,41 @@ clmi <- function(data, cont_name, batch_name, outcome_name, imp_vars, lod_info, 
     prop_sigma <- sqrt(diag(fisher_inf))
   }
   
-  #Transform Back to Original Scale
-  inverse <- function(f, lower = -1000, upper = 1000){
-    function(y){
-      uniroot((function(x) f(x) - y), lower = lower, upper = upper)[1]
-    }
-  }
-  
-  inverse_transform <- inverse(transform_imp, 0, max(lod_info[,"lod"]))
-  
   #Aggregate imputed datasets with observed dataset
   poll_imp <- imp
+  above_lod[[cont_imp_name]] <- transform_imp(above_lod[[cont_imp_name]])
   for(k1 in 1:length(poll_imp)){
-    for(conv in 1:nrow(imp[[k1]])){
-      imp[[k1]][[cont_imp_name]][conv] <- inverse_transform(imp[[k1]][[cont_imp_name]][conv])$root
-    }
     poll_imp[[k1]] <- rbind(imp[[k1]], above_lod)
   }
-  return(list("nimp" = total_imp, "imputations" = poll_imp, "mle" = mle_param, "fisher_inf" = fisher_inf,
+  return(list("nimp" = total_imp, "imputations" = poll_imp, "transform" = transform_imp,
+              "mle" = mle_param, "fisher_inf" = fisher_inf,
               var_names = list("cont_name" = cont_name, "batch_name" = batch_name, "outcome_name" = outcome_name,
-                               "imp_vars" = imp_vars, "lod_info" = lod_info)))
+                               "imp_vars" = imp_vars, "lod_info" = lod_info, "cont_imp_name" = cont_imp_name)))
 }
 
-pool.clmi <- function(clmi_obj, transform_model, regression_model, precis_vars){
+pool.clmi <- function(clmi_obj, regression_model, precis_vars){
   #clmi_obj: List generated from clmi() function is used as input for this argument
-  #transform_imp: transformaed contaminant used in the regression model; default is no transformation (must be a 1-1 transformation)
-  #transform_model: Linear Regression or Logistic Regression
+  #regression_model: Linear Regression or Logistic Regression
   #precision variables: vector of strings corresponding to covariates associated with the contaminant
+  
   #Get names used in clmi() function
   poll_imp <- clmi_obj$imputations
   batch_name <- clmi_obj$var_names$batch_name
-  cont_imp_name <- paste0(clmi_obj$var_names$cont_name,"_imputed")
+  cont_imp_name <- clmi_obj$var_names$cont_imp_name
   outcome_name <- clmi_obj$var_names$outcome_name
   imp_vars <- clmi_obj$var_names$imp_vars
   total_imp <- clmi_obj$nimp
   nobs <- nrow(poll_imp[[1]])
-  
-  #Transform contaminant
-  for(idx in 1:total_imp){
-    poll_imp[[idx]][[cont_imp_name]] <- transform_model(poll_imp[[idx]][[cont_imp_name]])
-  }
   
   #Get number of coefficients to store
   data.fit <- poll_imp[[1]][, names(poll_imp[[1]]) %in% imp_vars | names(poll_imp[[1]]) %in% precis_vars |
                               names(poll_imp[[1]]) %in% cont_imp_name]
   if(is.vector(data.fit)){
     num_continuous <- 1
-    num_levels <- 0
   } else if(!is.vector(data.fit)){
-    #Number of continuous variables
-    # num_continuous <- sum(!sapply(data.fit, is.factor))
     num_continuous <- sum(sapply(data.fit, is.numeric))
-    #Number of levels in factor variables
-    # if(sum(sapply(data.fit, is.factor)) == 0){
-    #   num_levels <- 0
-    # } else if(sum(sapply(data.fit, is.factor)) != 0){
-    #   num_levels <- sum(sapply(data.fit[,sapply(data.fit, is.factor)], nlevels)) - sum(sapply(data.fit, is.factor))
-    # }
   }
   #Total number of parameters in logistic regression (add one for the intercept)
-  # total_param <- 1 + num_continuous + num_levels
   total_param <- 1 + num_continuous
   
   #Get estimates and standard errors for each imputed dataset
@@ -255,18 +226,4 @@ pool.clmi <- function(clmi_obj, transform_model, regression_model, precis_vars){
   return(list("output" = data.frame("Est" = qbar, "SE" = sqrt(diag(t)), "df" = vstar, "P.Value" = p_vals, "LCL.95" = LCL, "UCL.95" = UCL), "pooled_vcov" = t,
               "reg_models" = regressions, "reg_models_summary" = individual_summary))
 }
-
-test <- read.table("toy_dataset.txt", stringsAsFactors = FALSE)
-
-save_imp <- clmi(data = test, cont_name = "poll", batch_name = "batch1", outcome_name = "case_cntrl",
-                 imp_vars = c("smoking","gender"),
-                 lod_info = data.frame(batch_info = c("1","0"), lod = c(0.8,0.65)),
-                 total_imp = 5, seed_num = 12345, transform_imp = function(x){log(x)})
-
-results <- pool.clmi(clmi_obj = save_imp, transform_model = function(x){log(x)}, regression_model = "Logistic",
-                     precis_vars = NULL)
-
-results$output
-
-results$reg_models_summary
 
