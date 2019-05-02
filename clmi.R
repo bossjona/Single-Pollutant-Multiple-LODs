@@ -2,14 +2,14 @@ clmi <- function(data, cont_name, batch_name, outcome_name, imp_vars, lod_info, 
   #data: Data frame with contaminant concentration, batch number, covariates used in imputation, precision variables
   #(make sure categorical variables are numeric, not factors). Can use model.matrix function to convert data frame with
   #factors to numeric design matrix and convert that matrix back into a data frame.
-  #cont_name: string corresponding to name of log-transformed contaminant variable.
+  #cont_name: string corresponding to name of untransformed contaminant variable.
   #batch_name: string corresponding to name of batch indicator variable.
-  #outcome_name: string corresponding to name of binary health outcome.
+  #outcome_name: string corresponding to name of continuous or binary health outcome.
   #imp_vars: vector of strings corresponding to covariates associated with the contaminant (covariates used in imputation).
   #lod_info: data frame with first column corresponding to each batch (entered as a string) and the
   #second column listing the LODs (entered numerically) corresponding to each batch.
   #First column must be named "batch_info" and the second column must be named "lod".
-  #total_imp: number of multiply imputed datasets (integer).
+  #total_imp: number of multiply imputed datasets (positive integer).
   #seed_num: seed number to ensure reproducability.
   #transform_imp: transformation applied to contaminant data to make it normally distributed, default is no transformation.
   #Resulting model will be fit on the transformed contaminant.
