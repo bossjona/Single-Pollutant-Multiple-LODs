@@ -145,7 +145,7 @@ clmi <- function(data, cont_name, batch_name, outcome_name, imp_vars, lod_info, 
 pool.clmi <- function(clmi_obj, regression_model, precis_vars){
   #clmi_obj: List generated from clmi() function is used as input for this argument
   #regression_model: Linear Regression or Logistic Regression
-  #precision variables: vector of strings corresponding to adjustment covariates
+  #precis_vars: vector of strings corresponding to adjustment covariates
   
   #Get names used in clmi() function
   poll_imp <- clmi_obj$imputations
