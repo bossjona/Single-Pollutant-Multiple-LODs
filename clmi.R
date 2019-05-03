@@ -124,7 +124,7 @@ clmi <- function(data, cont_name, batch_name, outcome_name, imp_vars, lod_info, 
           nrow(above_lod)*(1/2)*log(2*pi*theta[3]))
     }
     
-    mle <- optim(c(0,0,1), dist_x_given_yc, hessian=FALSE)
+    mle <- optim(c(0,0,1), dist_x_given_yc, hessian=TRUE)
     mle_param <- mle$par
     fisher_inf <- -solve(-mle$hessian)
     prop_sigma <- sqrt(diag(fisher_inf))
