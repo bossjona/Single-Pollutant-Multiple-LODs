@@ -14,6 +14,13 @@ License: GPL-3
 Encoding: UTF-8
 LazyData: true
 Imports: stats
+<<<<<<< HEAD
 RoxygenNote: 6.1.1
 NeedsCompilation: no
 Packaged: 2019-05-22 16:05:41 UTC; alexrix
+=======
+Depends: R (>= 3.5.0)
+RoxygenNote: 6.1.1
+NeedsCompilation: no
+Packaged: 2019-05-14 13:19:53 UTC; alexrix
+>>>>>>> 5e982e1e6f05499acb2b24d090c99a3ff656109a
