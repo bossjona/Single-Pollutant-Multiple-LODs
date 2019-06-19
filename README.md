@@ -1,3 +1,3 @@
 ## Censored Likelihood Multiple Imputation in R
 
-Welcome to the GitHub repository for an R implementation of censored likelihood multiple imputation. Please see **clmi_vignette.pdf** to get started.
+The Github repository for censored likelihood multiple imputation in R has been moved to the University of Michigan Center for Precision Health Data Science [Github page](https://github.com/umich-cphds/lodi).
